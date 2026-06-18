@@ -9,7 +9,55 @@ import {
   getCachedChargerLocations,
   getCacheStatus
 } from "./cache.js";
-import { ChargerSearchResponse } from "./types.js";
+import {
+  NormalisedChargerLocation,
+  NormalisedConnector,
+  NormalisedEVSE,
+  NormalisedStatus
+} from "./types.js";
+
+/**
+ * A charger location after the /chargers endpoint has added
+ * app-friendly summary fields.
+ *
+ * We keep this separate from NormalisedChargerLocation because the cached
+ * raw/normalised data should stay close to the CPO/OCPI shape, while this
+ * enriched type is specifically for API responses to the iPhone app.
+ */
+type EnrichedChargerLocation = NormalisedChargerLocation & {
+  /**
+   * Distance from the requested search point, in kilometres.
+   */
+  distanceKm: number;
+
+  /**
+   * App-friendly summary status for the whole charging location.
+   */
+  summaryStatus: NormalisedStatus;
+
+  /**
+   * Highest connector power available at this location, in kilowatts.
+   */
+  maximumPowerKw?: number;
+
+  /**
+   * Unique connector types found at this location.
+   *
+   * Example:
+   * ["CCS", "CHADEMO", "TYPE_2"]
+   */
+  connectorTypes: string[];
+
+  /**
+   * Number of EVSEs that are currently available.
+   */
+  availableEvseCount: number;
+
+  /**
+   * Total number of EVSEs at the location.
+   */
+  totalEvseCount: number;
+};
 
 /**
  * Create the Express application.
@@ -45,12 +93,60 @@ app.get("/health", (_req: any, res: any) => {
  *
  * Example:
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25
+ *
+ * Optional filters:
+ * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&connector=CCS
+ * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&minPowerKw=50
+ * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&availableOnly=true
+ *
+ * These filters are deliberately simple so the SwiftUI app can call them easily.
  */
 app.get("/chargers", async (req: any, res: any) => {
   try {
     const lat = Number(req.query.lat);
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm ?? 25);
+
+    /**
+     * Optional connector filter.
+     *
+     * Example:
+     * connector=CCS
+     * connector=TYPE_2
+     *
+     * Matching is case-insensitive.
+     */
+    const connectorFilter =
+      typeof req.query.connector === "string"
+        ? req.query.connector.trim().toUpperCase()
+        : undefined;
+
+    /**
+     * Optional minimum power filter.
+     *
+     * Example:
+     * minPowerKw=50
+     *
+     * This means:
+     * "Only return locations where at least one connector is 50 kW or above."
+     */
+    const minPowerKw =
+      req.query.minPowerKw !== undefined
+        ? Number(req.query.minPowerKw)
+        : undefined;
+
+    /**
+     * Optional availability filter.
+     *
+     * Example:
+     * availableOnly=true
+     *
+     * This means:
+     * "Only return locations where at least one EVSE is currently AVAILABLE."
+     */
+    const availableOnly =
+      typeof req.query.availableOnly === "string" &&
+      req.query.availableOnly.toLowerCase() === "true";
 
     /**
      * Validate required query parameters.
@@ -63,6 +159,29 @@ app.get("/chargers", async (req: any, res: any) => {
     }
 
     /**
+     * Validate optional radius.
+     */
+    if (!Number.isFinite(radiusKm) || radiusKm <= 0) {
+      res.status(400).json({
+        error: "radiusKm must be a positive number"
+      });
+      return;
+    }
+
+    /**
+     * Validate optional minimum power filter.
+     */
+    if (
+      minPowerKw !== undefined &&
+      (!Number.isFinite(minPowerKw) || minPowerKw < 0)
+    ) {
+      res.status(400).json({
+        error: "minPowerKw must be a positive number"
+      });
+      return;
+    }
+
+    /**
      * Load all charger locations from our in-memory cache.
      *
      * If the cache is stale or empty, this will refresh it first.
@@ -70,27 +189,67 @@ app.get("/chargers", async (req: any, res: any) => {
     const allLocations = await getCachedChargerLocations();
 
     /**
-     * Filter to chargers within the requested radius.
+     * Add app-friendly summary fields before filtering/sorting.
+     *
+     * This lets the SwiftUI app display useful values without needing to
+     * understand the full Location -> EVSE -> Connector hierarchy.
      */
-    const nearbyLocations = allLocations
-      .filter((location) => {
-        const distance = distanceKm(
-          lat,
-          lon,
-          location.latitude,
-          location.longitude
-        );
+    const enrichedLocations = allLocations.map((location) => {
+      return enrichLocation(location, lat, lon);
+    });
 
-        return distance <= radiusKm;
+    /**
+     * Filter to chargers within the requested radius and matching
+     * any optional connector/power/availability filters.
+     */
+    const nearbyLocations = enrichedLocations
+      .filter((location) => {
+        if (location.distanceKm > radiusKm) {
+          return false;
+        }
+
+        if (availableOnly && location.summaryStatus !== "AVAILABLE") {
+          return false;
+        }
+
+        if (connectorFilter && !locationHasConnector(location, connectorFilter)) {
+          return false;
+        }
+
+        if (
+          minPowerKw !== undefined &&
+          (location.maximumPowerKw === undefined ||
+            location.maximumPowerKw < minPowerKw)
+        ) {
+          return false;
+        }
+
+        return true;
       })
       .sort((a, b) => {
-        const distanceA = distanceKm(lat, lon, a.latitude, a.longitude);
-        const distanceB = distanceKm(lat, lon, b.latitude, b.longitude);
+        /**
+         * Sort order:
+         * 1. Available locations first
+         * 2. Nearest locations first
+         *
+         * This gives the app a sensible default list without complex UI logic.
+         */
+        const aAvailable = a.summaryStatus === "AVAILABLE";
+        const bAvailable = b.summaryStatus === "AVAILABLE";
 
-        return distanceA - distanceB;
+        if (aAvailable !== bAvailable) {
+          return aAvailable ? -1 : 1;
+        }
+
+        return a.distanceKm - b.distanceKm;
       });
 
-    const response: ChargerSearchResponse = {
+    /**
+     * We deliberately keep this response object simple rather than forcing
+     * it into ChargerSearchResponse, because nearbyLocations now contains
+     * enriched fields in addition to the base normalised location shape.
+     */
+    const response = {
       locations: nearbyLocations
     };
 
@@ -215,6 +374,152 @@ app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
     });
   }
 });
+
+/**
+ * Adds app-friendly summary fields to a normalised charger location.
+ *
+ * The raw normalised model still keeps the useful OCPI-style hierarchy:
+ *
+ * Location
+ *   -> EVSEs
+ *      -> Connectors
+ *
+ * But the iPhone app should not need to calculate simple display values
+ * like distance, maximum power, or available connector types.
+ */
+function enrichLocation(
+  location: NormalisedChargerLocation,
+  searchLat: number,
+  searchLon: number
+): EnrichedChargerLocation {
+  const locationDistanceKm = distanceKm(
+    searchLat,
+    searchLon,
+    location.latitude,
+    location.longitude
+  );
+
+  const allConnectors = getAllConnectors(location);
+  const maximumPowerKw = getMaximumPowerKw(allConnectors);
+  const connectorTypes = getConnectorTypes(allConnectors);
+  const summaryStatus = getSummaryStatus(location.evses);
+
+  const availableEvseCount = location.evses.filter((evse) => {
+    return evse.status === "AVAILABLE";
+  }).length;
+
+  return {
+    ...location,
+    distanceKm: roundToTwoDecimalPlaces(locationDistanceKm),
+    summaryStatus,
+    maximumPowerKw,
+    connectorTypes,
+    availableEvseCount,
+    totalEvseCount: location.evses.length
+  };
+}
+
+/**
+ * Returns all connectors at a location as one flat array.
+ */
+function getAllConnectors(
+  location: NormalisedChargerLocation
+): NormalisedConnector[] {
+  return location.evses.flatMap((evse) => {
+    return evse.connectors;
+  });
+}
+
+/**
+ * Returns the highest known connector power at a location.
+ */
+function getMaximumPowerKw(
+  connectors: NormalisedConnector[]
+): number | undefined {
+  const powers = connectors
+    .map((connector) => connector.powerKw)
+    .filter((power): power is number => {
+      return typeof power === "number" && Number.isFinite(power);
+    });
+
+  if (powers.length === 0) {
+    return undefined;
+  }
+
+  return Math.max(...powers);
+}
+
+/**
+ * Returns unique connector standards at a location.
+ */
+function getConnectorTypes(connectors: NormalisedConnector[]): string[] {
+  const connectorTypes = connectors
+    .map((connector) => connector.standard)
+    .filter((standard): standard is string => {
+      return typeof standard === "string" && standard.trim().length > 0;
+    })
+    .map((standard) => {
+      return standard.toUpperCase();
+    });
+
+  return Array.from(new Set(connectorTypes)).sort();
+}
+
+/**
+ * Produces one summary status for a whole charging location.
+ *
+ * Rules:
+ * - If any EVSE is AVAILABLE, the whole location is useful now.
+ * - Otherwise, if any EVSE is CHARGING, RESERVED, or OCCUPIED, call it OCCUPIED.
+ * - Otherwise, if any EVSE is OUT_OF_ORDER or INOPERATIVE, call it OUT_OF_ORDER.
+ * - Otherwise, UNKNOWN.
+ */
+function getSummaryStatus(evses: NormalisedEVSE[]): NormalisedStatus {
+  const statuses = evses.map((evse) => evse.status);
+
+  if (statuses.includes("AVAILABLE")) {
+    return "AVAILABLE";
+  }
+
+  if (
+    statuses.includes("CHARGING") ||
+    statuses.includes("RESERVED") ||
+    statuses.includes("OCCUPIED")
+  ) {
+    return "OCCUPIED";
+  }
+
+  if (statuses.includes("OUT_OF_ORDER") || statuses.includes("INOPERATIVE")) {
+    return "OUT_OF_ORDER";
+  }
+
+  return "UNKNOWN";
+}
+
+/**
+ * Checks whether a location has a connector matching the requested filter.
+ *
+ * Matching is case-insensitive.
+ */
+function locationHasConnector(
+  location: EnrichedChargerLocation,
+  requestedConnector: string
+): boolean {
+  const requested = requestedConnector.trim().toUpperCase();
+
+  return getAllConnectors(location).some((connector) => {
+    return connector.standard?.trim().toUpperCase() === requested;
+  });
+}
+
+/**
+ * Rounds a number to two decimal places.
+ *
+ * Useful for distance values returned to the app.
+ */
+function roundToTwoDecimalPlaces(value: number): number {
+  return Math.round(value * 100) / 100;
+}
 
 /**
  * Use the port supplied by the hosting platform,
