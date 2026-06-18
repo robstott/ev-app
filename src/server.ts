@@ -3,9 +3,12 @@ declare const process: {
 };
 
 import express from "express";
-import { cpoFeeds } from "./cpoFeeds.js";
 import { distanceKm } from "./geo.js";
-import { fetchAndNormaliseCpoLocations } from "./normalise.js";
+import {
+  forceRefreshChargerCache,
+  getCachedChargerLocations,
+  getCacheStatus
+} from "./cache.js";
 import { ChargerSearchResponse } from "./types.js";
 
 /**
@@ -28,7 +31,7 @@ app.use(express.json());
  *
  * Useful for:
  * - testing locally
- * - deployment platforms such as Render
+ * - deployment platforms
  * - uptime monitors
  */
 app.get("/health", (_req: any, res: any) => {
@@ -60,20 +63,11 @@ app.get("/chargers", async (req: any, res: any) => {
     }
 
     /**
-     * Fetch all configured CPO feeds in parallel.
+     * Load all charger locations from our in-memory cache.
      *
-     * MVP note:
-     * This is OK for development, but not ideal for production.
-     *
-     * Production note:
-     * We should sync feeds periodically into a database/cache,
-     * then serve app requests from our own database.
+     * If the cache is stale or empty, this will refresh it first.
      */
-    const nestedLocations = await Promise.all(
-      cpoFeeds.map((feed) => fetchAndNormaliseCpoLocations(feed))
-    );
-
-    const allLocations = nestedLocations.flat();
+    const allLocations = await getCachedChargerLocations();
 
     /**
      * Filter to chargers within the requested radius.
@@ -111,10 +105,122 @@ app.get("/chargers", async (req: any, res: any) => {
 });
 
 /**
+ * Debug endpoint showing cache status.
+ *
+ * Useful while developing because it tells us:
+ * - whether the cache has data
+ * - how old the data is
+ * - whether a refresh is currently running
+ */
+app.get("/debug/cache-status", (_req: any, res: any) => {
+  res.json(getCacheStatus());
+});
+
+/**
+ * Debug endpoint to force a cache refresh.
+ *
+ * This is useful after changing feed configuration or normalisation logic.
+ *
+ * In a real public production app, this should be protected by an admin key.
+ * For the MVP, it is okay, but we should remove or protect it later.
+ */
+app.post("/debug/refresh-cache", async (_req: any, res: any) => {
+  try {
+    const locations = await forceRefreshChargerCache();
+
+    res.json({
+      ok: true,
+      locationCount: locations.length,
+      cacheStatus: getCacheStatus()
+    });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      error: String(error)
+    });
+  }
+});
+
+/**
+ * Temporary debug endpoint.
+ *
+ * This fetches the first CPO feed and returns basic information about
+ * the raw JSON shape. It helps us understand whether the operator returns:
+ *
+ * - an array directly
+ * - an OCPI-style { data: [...] } wrapper
+ * - something else
+ *
+ * Remove this endpoint once the feed is working and stable.
+ */
+app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
+  try {
+    /**
+     * Importing here avoids keeping cpoFeeds in the main import list
+     * unless this debug endpoint is actually called.
+     */
+    const { cpoFeeds } = await import("./cpoFeeds.js");
+
+    const firstFeed = cpoFeeds[0];
+
+    if (!firstFeed) {
+      res.status(500).json({
+        error: "No CPO feeds configured"
+      });
+      return;
+    }
+
+    const response = await fetch(firstFeed.locationsUrl, {
+      method: "GET",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+
+    const rawJson = await response.json();
+
+    const topLevelType = Array.isArray(rawJson) ? "array" : typeof rawJson;
+
+    const data = Array.isArray(rawJson)
+      ? rawJson
+      : rawJson &&
+          typeof rawJson === "object" &&
+          "data" in rawJson &&
+          Array.isArray((rawJson as any).data)
+        ? (rawJson as any).data
+        : undefined;
+
+    const firstItem = data?.[0];
+
+    res.json({
+      feedName: firstFeed.name,
+      feedUrl: firstFeed.locationsUrl,
+      httpStatus: response.status,
+      topLevelType,
+      isArray: Array.isArray(rawJson),
+      topLevelKeys:
+        rawJson && typeof rawJson === "object" && !Array.isArray(rawJson)
+          ? Object.keys(rawJson)
+          : undefined,
+      extractedItemCount: data?.length ?? 0,
+      firstItemKeys:
+        firstItem && typeof firstItem === "object"
+          ? Object.keys(firstItem)
+          : undefined,
+      firstItemPreview: firstItem
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: String(error)
+    });
+  }
+});
+
+/**
  * Use the port supplied by the hosting platform,
  * or default to 3000 for local development.
  *
- * Render supplies process.env.PORT automatically.
+ * Render provides the PORT environment variable automatically.
  */
 const port = Number(process.env.PORT ?? 3000);
 
