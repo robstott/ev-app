@@ -327,6 +327,10 @@ app.get("/chargers/:id", async (req: any, res: any) => {
      * Note:
      * This endpoint does not calculate distance, because it does not know
      * where the user is unless we ask for lat/lon here too.
+     *
+     * The app can either:
+     * - use distance from the list response, or
+     * - call this endpoint with optional lat/lon later if we add that feature.
      */
     res.json({
       location: matchingLocation
@@ -444,6 +448,34 @@ app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
           ? Object.keys(firstItem)
           : undefined,
       firstItemPreview: firstItem
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: String(error)
+    });
+  }
+});
+
+/**
+ * Debug endpoint showing which CPO feeds are currently configured.
+ *
+ * This helps confirm whether Render is actually running with GeniePoint,
+ * Clenergy, GRIDSERVE, or any future operators.
+ */
+app.get("/debug/feeds", async (_req: any, res: any) => {
+  try {
+    const { cpoFeeds } = await import("./cpoFeeds.js");
+
+    res.json({
+      feedCount: cpoFeeds.length,
+      feeds: cpoFeeds.map((feed) => {
+        return {
+          id: feed.id,
+          name: feed.name,
+          locationsUrl: feed.locationsUrl,
+          hasToken: Boolean(feed.token)
+        };
+      })
     });
   } catch (error) {
     res.status(500).json({
@@ -609,4 +641,3 @@ const port = Number(process.env.PORT ?? 3000);
 app.listen(port, () => {
   console.log(`EV charger backend running on port ${port}`);
 });
-
