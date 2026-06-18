@@ -5,39 +5,61 @@ declare const process: {
 import { CpoFeedConfig } from "./types.js";
 
 /**
- * List of charge point operator feeds our backend knows about.
+ * Helper that only includes a feed when a URL has actually been configured.
  *
- * For the MVP, we start with one operator slot.
- * Later, add more operators as you obtain open-data URLs or credentials.
- *
- * Important:
- * Use environment variables for real feed URLs and tokens. That keeps
- * deployment-specific details and secrets out of the codebase.
+ * This lets us add optional CPOs without breaking the app while we are waiting
+ * for API access or credentials.
  */
-export const cpoFeeds: CpoFeedConfig[] = [
-  {
-    id: "geniepoint",
-    name: "GeniePoint",
-
-    /**
-     * Placeholder fallback:
-     *
-     * Replace GENIEPOINT_LOCATIONS_URL with a real JSON/open-data/OCPI URL
-     * in your local shell or Render environment variables.
-     */
-    locationsUrl:
-      process.env.GENIEPOINT_LOCATIONS_URL ??
-      "https://example.com/geniepoint-locations.json"
+function optionalFeed(feed: CpoFeedConfig): CpoFeedConfig[] {
+  if (!feed.locationsUrl || feed.locationsUrl.includes("example.com")) {
+    return [];
   }
 
-  /**
-   * Add more CPOs here as you get access:
-   *
-   * {
-   *   id: "instavolt",
-   *   name: "InstaVolt",
-   *   locationsUrl: process.env.INSTAVOLT_LOCATIONS_URL ?? "",
-   *   token: process.env.INSTAVOLT_TOKEN
-   * }
-   */
+  return [feed];
+}
+
+/**
+ * List of CPO feeds our backend knows about.
+ *
+ * Each feed should provide location/reference/status data in either:
+ * - OCPI-ish JSON format, usually { data: [...] }
+ * - or a direct array of location objects
+ *
+ * The normaliser then converts each operator into our clean app model.
+ */
+export const cpoFeeds: CpoFeedConfig[] = [
+  ...optionalFeed({
+    id: "geniepoint",
+    name: "GeniePoint",
+    locationsUrl:
+      process.env.GENIEPOINT_LOCATIONS_URL ??
+      "https://opendata.geniepoint.co.uk/locations"
+  }),
+
+  ...optionalFeed({
+    id: "gridserve",
+    name: "GRIDSERVE",
+
+    /**
+     * Put the GRIDSERVE locations/reference-data endpoint here once they
+     * provide API access.
+     *
+     * Render environment variable:
+     * GRIDSERVE_LOCATIONS_URL=https://...
+     */
+    locationsUrl:
+      process.env.GRIDSERVE_LOCATIONS_URL ??
+      "https://example.com/gridserve-locations.json",
+
+    /**
+     * If GRIDSERVE gives you a token, put it in Render as:
+     * GRIDSERVE_TOKEN=...
+     *
+     * The normaliser already sends:
+     * Authorization: Token <token>
+     *
+     * If their docs require "Bearer" instead, we can update this per feed.
+     */
+    token: process.env.GRIDSERVE_TOKEN
+  })
 ];
