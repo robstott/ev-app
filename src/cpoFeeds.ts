@@ -28,6 +28,11 @@ function optionalFeed(feed: CpoFeedConfig): CpoFeedConfig[] {
  * The normaliser then converts each operator into our clean app model.
  */
 export const cpoFeeds: CpoFeedConfig[] = [
+  /**
+   * GeniePoint
+   *
+   * Public open-data locations endpoint.
+   */
   ...optionalFeed({
     id: "geniepoint",
     name: "GeniePoint",
@@ -36,41 +41,60 @@ export const cpoFeeds: CpoFeedConfig[] = [
       "https://opendata.geniepoint.co.uk/locations"
   }),
 
+  /**
+   * Clenergy EV
+   *
+   * Public OCPI-style open-data locations endpoint.
+   */
   ...optionalFeed({
     id: "clenergy",
     name: "Clenergy EV",
-
-    /**
-     * Clenergy's open-data page links to this public locations endpoint.
-     *
-     * Render environment variable:
-     * CLENERGY_LOCATIONS_URL=https://api.clenergy.online/development/pcpr/locations
-     */
     locationsUrl:
       process.env.CLENERGY_LOCATIONS_URL ??
       "https://api.clenergy.online/development/pcpr/locations"
   }),
 
+  /**
+   * BMM Networks / EV Dot
+   *
+   * BMM's open-data page links to machine-readable OCPI locations data.
+   *
+   * Once you have copied the actual BMM locations URL from their open-data page,
+   * add it in Render as:
+   *
+   * BMM_LOCATIONS_URL=https://...
+   *
+   * Until that environment variable is set, this feed is skipped because
+   * the fallback URL contains example.com.
+   */
+  ...optionalFeed({
+    id: "bmm",
+    name: "BMM Networks / EV Dot",
+    locationsUrl:
+      process.env.BMM_LOCATIONS_URL ??
+      "https://example.com/bmm-locations.json"
+  }),
+
+  /**
+   * GRIDSERVE
+   *
+   * GRIDSERVE appears to require API onboarding rather than simply exposing
+   * a public no-auth JSON URL in the same way as GeniePoint or Clenergy.
+   *
+   * Once GRIDSERVE gives you an endpoint, add it in Render as:
+   *
+   * GRIDSERVE_LOCATIONS_URL=https://...
+   *
+   * If they also give you a token, add:
+   *
+   * GRIDSERVE_TOKEN=...
+   */
   ...optionalFeed({
     id: "gridserve",
     name: "GRIDSERVE",
-
-    /**
-     * GRIDSERVE appears to require API onboarding rather than simply exposing
-     * a public no-auth JSON URL in the same way as GeniePoint or Clenergy.
-     *
-     * Once GRIDSERVE gives you an endpoint, add it in Render as:
-     *
-     * GRIDSERVE_LOCATIONS_URL=https://...
-     *
-     * If they also give you a token, add:
-     *
-     * GRIDSERVE_TOKEN=...
-     */
     locationsUrl:
       process.env.GRIDSERVE_LOCATIONS_URL ??
       "https://example.com/gridserve-locations.json",
-
     token: process.env.GRIDSERVE_TOKEN
   })
 ];
