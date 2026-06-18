@@ -10,7 +10,6 @@
     "check": "tsc --noEmit"
   },
   "dependencies": {
-    "@types/node": "^20.0.0",
     "express": "^4.19.2"
   },
   "devDependencies": {
@@ -23,4 +22,3 @@
     "node": ">=20"
   }
 }
-
