@@ -49,5 +49,28 @@ export const cpoFeeds: CpoFeedConfig[] = [
     locationsUrl:
       process.env.CLENERGY_LOCATIONS_URL ??
       "https://api.clenergy.online/development/pcpr/locations"
+  }),
+
+  ...optionalFeed({
+    id: "gridserve",
+    name: "GRIDSERVE",
+
+    /**
+     * GRIDSERVE appears to require API onboarding rather than simply exposing
+     * a public no-auth JSON URL in the same way as GeniePoint or Clenergy.
+     *
+     * Once GRIDSERVE gives you an endpoint, add it in Render as:
+     *
+     * GRIDSERVE_LOCATIONS_URL=https://...
+     *
+     * If they also give you a token, add:
+     *
+     * GRIDSERVE_TOKEN=...
+     */
+    locationsUrl:
+      process.env.GRIDSERVE_LOCATIONS_URL ??
+      "https://example.com/gridserve-locations.json",
+
+    token: process.env.GRIDSERVE_TOKEN
   })
 ];
