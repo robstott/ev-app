@@ -1,3 +1,7 @@
+declare const process: {
+  env: Record<string, string | undefined>;
+};
+
 import { CpoFeedConfig } from "./types.js";
 
 /**
