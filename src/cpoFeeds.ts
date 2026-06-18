@@ -37,29 +37,17 @@ export const cpoFeeds: CpoFeedConfig[] = [
   }),
 
   ...optionalFeed({
-    id: "gridserve",
-    name: "GRIDSERVE",
+    id: "clenergy",
+    name: "Clenergy EV",
 
     /**
-     * Put the GRIDSERVE locations/reference-data endpoint here once they
-     * provide API access.
+     * Clenergy's open-data page links to this public locations endpoint.
      *
      * Render environment variable:
-     * GRIDSERVE_LOCATIONS_URL=https://...
+     * CLENERGY_LOCATIONS_URL=https://api.clenergy.online/development/pcpr/locations
      */
     locationsUrl:
-      process.env.GRIDSERVE_LOCATIONS_URL ??
-      "https://example.com/gridserve-locations.json",
-
-    /**
-     * If GRIDSERVE gives you a token, put it in Render as:
-     * GRIDSERVE_TOKEN=...
-     *
-     * The normaliser already sends:
-     * Authorization: Token <token>
-     *
-     * If their docs require "Bearer" instead, we can update this per feed.
-     */
-    token: process.env.GRIDSERVE_TOKEN
+      process.env.CLENERGY_LOCATIONS_URL ??
+      "https://api.clenergy.online/development/pcpr/locations"
   })
 ];
