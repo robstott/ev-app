@@ -1,3 +1,7 @@
+declare const process: {
+  env: Record<string, string | undefined>;
+};
+
 import express from "express";
 import { cpoFeeds } from "./cpoFeeds.js";
 import { distanceKm } from "./geo.js";
@@ -27,7 +31,7 @@ app.use(express.json());
  * - deployment platforms such as Render
  * - uptime monitors
  */
-app.get("/health", (_req, res) => {
+app.get("/health", (_req: any, res: any) => {
   res.json({
     ok: true
   });
@@ -39,7 +43,7 @@ app.get("/health", (_req, res) => {
  * Example:
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25
  */
-app.get("/chargers", async (req, res) => {
+app.get("/chargers", async (req: any, res: any) => {
   try {
     const lat = Number(req.query.lat);
     const lon = Number(req.query.lon);
