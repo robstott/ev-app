@@ -25,62 +25,26 @@ import {
  * enriched type is specifically for API responses to the iPhone app.
  */
 type EnrichedChargerLocation = NormalisedChargerLocation & {
-  /**
-   * Distance from the requested search point, in kilometres.
-   */
   distanceKm: number;
-
-  /**
-   * App-friendly summary status for the whole charging location.
-   */
   summaryStatus: NormalisedStatus;
-
-  /**
-   * Highest connector power available at this location, in kilowatts.
-   */
   maximumPowerKw?: number;
-
-  /**
-   * Unique connector types found at this location.
-   *
-   * Example:
-   * ["CCS", "CHADEMO", "TYPE_2"]
-   */
   connectorTypes: string[];
-
-  /**
-   * Number of EVSEs that are currently available.
-   */
   availableEvseCount: number;
-
-  /**
-   * Total number of EVSEs at the location.
-   */
   totalEvseCount: number;
 };
 
 /**
  * Create the Express application.
- *
- * Express is a lightweight web server framework for Node.js.
  */
 const app = express();
 
 /**
  * Tell Express to understand JSON request bodies.
- *
- * Our current GET endpoints do not need this much,
- * but it is useful once we add admin/sync/debug endpoints.
  */
 app.use(express.json());
 
 /**
  * Simple health check.
- *
- * Useful for:
- * - testing locally
- * - deployment platforms
- * - uptime monitors
  */
 app.get("/health", (_req: any, res: any) => {
   res.json({
@@ -91,15 +55,11 @@ app.get("/health", (_req: any, res: any) => {
 /**
  * Main charger search endpoint.
  *
- * Example:
+ * Examples:
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25
- *
- * Optional filters:
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&connector=CCS
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&minPowerKw=50
  * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25&availableOnly=true
- *
- * These filters are deliberately simple so the SwiftUI app can call them easily.
  */
 app.get("/chargers", async (req: any, res: any) => {
   try {
@@ -107,50 +67,20 @@ app.get("/chargers", async (req: any, res: any) => {
     const lon = Number(req.query.lon);
     const radiusKm = Number(req.query.radiusKm ?? 25);
 
-    /**
-     * Optional connector filter.
-     *
-     * Example:
-     * connector=CCS
-     * connector=TYPE_2
-     *
-     * Matching is case-insensitive.
-     */
     const connectorFilter =
       typeof req.query.connector === "string"
         ? req.query.connector.trim().toUpperCase()
         : undefined;
 
-    /**
-     * Optional minimum power filter.
-     *
-     * Example:
-     * minPowerKw=50
-     *
-     * This means:
-     * "Only return locations where at least one connector is 50 kW or above."
-     */
     const minPowerKw =
       req.query.minPowerKw !== undefined
         ? Number(req.query.minPowerKw)
         : undefined;
 
-    /**
-     * Optional availability filter.
-     *
-     * Example:
-     * availableOnly=true
-     *
-     * This means:
-     * "Only return locations where at least one EVSE is currently AVAILABLE."
-     */
     const availableOnly =
       typeof req.query.availableOnly === "string" &&
       req.query.availableOnly.toLowerCase() === "true";
 
-    /**
-     * Validate required query parameters.
-     */
     if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
       res.status(400).json({
         error: "lat and lon query parameters are required"
@@ -158,9 +88,6 @@ app.get("/chargers", async (req: any, res: any) => {
       return;
     }
 
-    /**
-     * Validate optional radius.
-     */
     if (!Number.isFinite(radiusKm) || radiusKm <= 0) {
       res.status(400).json({
         error: "radiusKm must be a positive number"
@@ -168,9 +95,6 @@ app.get("/chargers", async (req: any, res: any) => {
       return;
     }
 
-    /**
-     * Validate optional minimum power filter.
-     */
     if (
       minPowerKw !== undefined &&
       (!Number.isFinite(minPowerKw) || minPowerKw < 0)
@@ -181,27 +105,12 @@ app.get("/chargers", async (req: any, res: any) => {
       return;
     }
 
-    /**
-     * Load all charger locations from our in-memory cache.
-     *
-     * If the cache is stale or empty, this will refresh it first.
-     */
     const allLocations = await getCachedChargerLocations();
 
-    /**
-     * Add app-friendly summary fields before filtering/sorting.
-     *
-     * This lets the SwiftUI app display useful values without needing to
-     * understand the full Location -> EVSE -> Connector hierarchy.
-     */
     const enrichedLocations = allLocations.map((location) => {
       return enrichLocation(location, lat, lon);
     });
 
-    /**
-     * Filter to chargers within the requested radius and matching
-     * any optional connector/power/availability filters.
-     */
     const nearbyLocations = enrichedLocations
       .filter((location) => {
         if (location.distanceKm > radiusKm) {
@@ -227,13 +136,6 @@ app.get("/chargers", async (req: any, res: any) => {
         return true;
       })
       .sort((a, b) => {
-        /**
-         * Sort order:
-         * 1. Available locations first
-         * 2. Nearest locations first
-         *
-         * This gives the app a sensible default list without complex UI logic.
-         */
         const aAvailable = a.summaryStatus === "AVAILABLE";
         const bAvailable = b.summaryStatus === "AVAILABLE";
 
@@ -244,16 +146,9 @@ app.get("/chargers", async (req: any, res: any) => {
         return a.distanceKm - b.distanceKm;
       });
 
-    /**
-     * We deliberately keep this response object simple rather than forcing
-     * it into ChargerSearchResponse, because nearbyLocations now contains
-     * enriched fields in addition to the base normalised location shape.
-     */
-    const response = {
+    res.json({
       locations: nearbyLocations
-    };
-
-    res.json(response);
+    });
   } catch (error) {
     console.error(error);
 
@@ -268,23 +163,11 @@ app.get("/chargers", async (req: any, res: any) => {
  *
  * Example:
  * GET /chargers/geniepoint-abc123
- *
- * This returns one charger location by ID.
- *
- * The list endpoint is useful for map/list screens:
- *
- * GET /chargers?lat=54.0&lon=-0.4&radiusKm=25
- *
- * This detail endpoint is useful when the user taps one charger and the
- * SwiftUI app wants the full Location -> EVSE -> Connector data.
  */
 app.get("/chargers/:id", async (req: any, res: any) => {
   try {
     const chargerId = String(req.params.id ?? "").trim();
 
-    /**
-     * Validate that the caller supplied an ID.
-     */
     if (chargerId.length === 0) {
       res.status(400).json({
         error: "charger id is required"
@@ -292,23 +175,8 @@ app.get("/chargers/:id", async (req: any, res: any) => {
       return;
     }
 
-    /**
-     * Load all charger locations from the same in-memory cache used by
-     * the /chargers list endpoint.
-     *
-     * If the cache is empty or stale, this will refresh it first.
-     */
     const allLocations = await getCachedChargerLocations();
 
-    /**
-     * Find the requested charger.
-     *
-     * IDs are generated by our normaliser, usually in the form:
-     * cpoId-locationId
-     *
-     * Example:
-     * geniepoint-12345
-     */
     const matchingLocation = allLocations.find((location) => {
       return location.id === chargerId;
     });
@@ -321,17 +189,6 @@ app.get("/chargers/:id", async (req: any, res: any) => {
       return;
     }
 
-    /**
-     * Return the full normalised charger location.
-     *
-     * Note:
-     * This endpoint does not calculate distance, because it does not know
-     * where the user is unless we ask for lat/lon here too.
-     *
-     * The app can either:
-     * - use distance from the list response, or
-     * - call this endpoint with optional lat/lon later if we add that feature.
-     */
     res.json({
       location: matchingLocation
     });
@@ -346,11 +203,6 @@ app.get("/chargers/:id", async (req: any, res: any) => {
 
 /**
  * Debug endpoint showing cache status.
- *
- * Useful while developing because it tells us:
- * - whether the cache has data
- * - how old the data is
- * - whether a refresh is currently running
  */
 app.get("/debug/cache-status", (_req: any, res: any) => {
   res.json(getCacheStatus());
@@ -359,10 +211,7 @@ app.get("/debug/cache-status", (_req: any, res: any) => {
 /**
  * Debug endpoint to force a cache refresh.
  *
- * This is useful after changing feed configuration or normalisation logic.
- *
  * In a real public production app, this should be protected by an admin key.
- * For the MVP, it is okay, but we should remove or protect it later.
  */
 app.post("/debug/refresh-cache", async (_req: any, res: any) => {
   try {
@@ -384,37 +233,49 @@ app.post("/debug/refresh-cache", async (_req: any, res: any) => {
 /**
  * Temporary debug endpoint.
  *
- * This fetches the first CPO feed and returns basic information about
- * the raw JSON shape. It helps us understand whether the operator returns:
- *
- * - an array directly
- * - an OCPI-style { data: [...] } wrapper
- * - something else
- *
- * Remove this endpoint once the feed is working and stable.
+ * Examples:
+ * GET /debug/raw-feed-shape
+ * GET /debug/raw-feed-shape?feedId=bmm
+ * GET /debug/raw-feed-shape?feedId=clenergy
  */
-app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
+app.get("/debug/raw-feed-shape", async (req: any, res: any) => {
   try {
-    /**
-     * Importing here avoids keeping cpoFeeds in the main import list
-     * unless this debug endpoint is actually called.
-     */
     const { cpoFeeds } = await import("./cpoFeeds.js");
 
-    const firstFeed = cpoFeeds[0];
+    const requestedFeedId =
+      typeof req.query.feedId === "string"
+        ? req.query.feedId.trim()
+        : undefined;
 
-    if (!firstFeed) {
-      res.status(500).json({
-        error: "No CPO feeds configured"
+    const feed =
+      requestedFeedId !== undefined
+        ? cpoFeeds.find((candidateFeed) => {
+            return candidateFeed.id === requestedFeedId;
+          })
+        : cpoFeeds[0];
+
+    if (!feed) {
+      res.status(404).json({
+        error: "Feed not found",
+        requestedFeedId,
+        availableFeedIds: cpoFeeds.map((candidateFeed) => {
+          return candidateFeed.id;
+        })
       });
       return;
     }
 
-    const response = await fetch(firstFeed.locationsUrl, {
+    const headers: Record<string, string> = {
+      Accept: "application/json"
+    };
+
+    if (feed.token) {
+      headers.Authorization = `Token ${feed.token}`;
+    }
+
+    const response = await fetch(feed.locationsUrl, {
       method: "GET",
-      headers: {
-        Accept: "application/json"
-      }
+      headers
     });
 
     const rawJson = await response.json();
@@ -433,8 +294,9 @@ app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
     const firstItem = data?.[0];
 
     res.json({
-      feedName: firstFeed.name,
-      feedUrl: firstFeed.locationsUrl,
+      feedId: feed.id,
+      feedName: feed.name,
+      feedUrl: feed.locationsUrl,
       httpStatus: response.status,
       topLevelType,
       isArray: Array.isArray(rawJson),
@@ -458,9 +320,6 @@ app.get("/debug/raw-feed-shape", async (_req: any, res: any) => {
 
 /**
  * Debug endpoint showing which CPO feeds are currently configured.
- *
- * This helps confirm whether Render is actually running with GeniePoint,
- * Clenergy, GRIDSERVE, or any future operators.
  */
 app.get("/debug/feeds", async (_req: any, res: any) => {
   try {
@@ -485,16 +344,103 @@ app.get("/debug/feeds", async (_req: any, res: any) => {
 });
 
 /**
+ * Debug endpoint estimating current backend coverage.
+ *
+ * This counts:
+ * - locations
+ * - EVSEs / chargers
+ * - connectors
+ *
+ * grouped by our feed ID prefix, e.g.
+ * geniepoint-, clenergy-, bmm-, chargy-
+ *
+ * It then compares our EVSE count with a recent UK public EV charger
+ * estimate. This is only an approximation, but useful during development.
+ */
+app.get("/debug/coverage", async (_req: any, res: any) => {
+  try {
+    const allLocations = await getCachedChargerLocations();
+
+    /**
+     * UK public EVSE / charger estimate.
+     *
+     * This value should be reviewed periodically because the UK charging
+     * network is growing quickly.
+     */
+    const UK_PUBLIC_EVSE_ESTIMATE = 120_388;
+
+    const byFeed: Record<
+      string,
+      {
+        locationCount: number;
+        evseCount: number;
+        connectorCount: number;
+      }
+    > = {};
+
+    for (const location of allLocations) {
+      const feedId = location.id.split("-")[0] ?? "unknown";
+
+      if (!byFeed[feedId]) {
+        byFeed[feedId] = {
+          locationCount: 0,
+          evseCount: 0,
+          connectorCount: 0
+        };
+      }
+
+      byFeed[feedId].locationCount += 1;
+      byFeed[feedId].evseCount += location.evses.length;
+      byFeed[feedId].connectorCount += location.evses.reduce(
+        (total, evse) => {
+          return total + evse.connectors.length;
+        },
+        0
+      );
+    }
+
+    const totalLocationCount = allLocations.length;
+
+    const totalEvseCount = allLocations.reduce((total, location) => {
+      return total + location.evses.length;
+    }, 0);
+
+    const totalConnectorCount = allLocations.reduce((total, location) => {
+      return (
+        total +
+        location.evses.reduce((evseTotal, evse) => {
+          return evseTotal + evse.connectors.length;
+        }, 0)
+      );
+    }, 0);
+
+    const estimatedUkCoveragePercent =
+      Math.round((totalEvseCount / UK_PUBLIC_EVSE_ESTIMATE) * 10_000) / 100;
+
+    res.json({
+      basis: {
+        ukPublicEvseEstimate: UK_PUBLIC_EVSE_ESTIMATE,
+        estimateSource: "Zapmap end-April 2026 public EV charger count",
+        note:
+          "Coverage is approximate because feeds may use slightly different EVSE/device/connector interpretations."
+      },
+      totals: {
+        locationCount: totalLocationCount,
+        evseCount: totalEvseCount,
+        connectorCount: totalConnectorCount,
+        estimatedUkCoveragePercent
+      },
+      byFeed
+    });
+  } catch (error) {
+    res.status(500).json({
+      error: String(error)
+    });
+  }
+});
+
+/**
  * Adds app-friendly summary fields to a normalised charger location.
- *
- * The raw normalised model still keeps the useful OCPI-style hierarchy:
- *
- * Location
- *   -> EVSEs
- *      -> Connectors
- *
- * But the iPhone app should not need to calculate simple display values
- * like distance, maximum power, or available connector types.
  */
 function enrichLocation(
   location: NormalisedChargerLocation,
@@ -576,12 +522,6 @@ function getConnectorTypes(connectors: NormalisedConnector[]): string[] {
 
 /**
  * Produces one summary status for a whole charging location.
- *
- * Rules:
- * - If any EVSE is AVAILABLE, the whole location is useful now.
- * - Otherwise, if any EVSE is CHARGING, RESERVED, or OCCUPIED, call it OCCUPIED.
- * - Otherwise, if any EVSE is OUT_OF_ORDER or INOPERATIVE, call it OUT_OF_ORDER.
- * - Otherwise, UNKNOWN.
  */
 function getSummaryStatus(evses: NormalisedEVSE[]): NormalisedStatus {
   const statuses = evses.map((evse) => evse.status);
@@ -607,8 +547,6 @@ function getSummaryStatus(evses: NormalisedEVSE[]): NormalisedStatus {
 
 /**
  * Checks whether a location has a connector matching the requested filter.
- *
- * Matching is case-insensitive.
  */
 function locationHasConnector(
   location: EnrichedChargerLocation,
@@ -623,8 +561,6 @@ function locationHasConnector(
 
 /**
  * Rounds a number to two decimal places.
- *
- * Useful for distance values returned to the app.
  */
 function roundToTwoDecimalPlaces(value: number): number {
   return Math.round(value * 100) / 100;
@@ -633,8 +569,6 @@ function roundToTwoDecimalPlaces(value: number): number {
 /**
  * Use the port supplied by the hosting platform,
  * or default to 3000 for local development.
- *
- * Render provides the PORT environment variable automatically.
  */
 const port = Number(process.env.PORT ?? 3000);
 
