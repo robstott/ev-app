@@ -1,0 +1,15 @@
+# Optional Render Blueprint.
+# You can either use this file or configure the service manually in Render.
+
+services:
+  - type: web
+    name: ev-charger-backend
+    runtime: node
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: GENIEPOINT_LOCATIONS_URL
+        sync: false

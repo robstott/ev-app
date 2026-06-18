@@ -1,0 +1,23 @@
+{
+  "name": "ev-charger-backend",
+  "version": "0.1.0",
+  "description": "A small TypeScript/Express backend for aggregating EV charger data from CPO OCPI/open-data feeds.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "tsx": "^4.16.2",
+    "typescript": "^5.5.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
