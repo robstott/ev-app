@@ -32,6 +32,9 @@ export const cpoFeeds: CpoFeedConfig[] = [
    * GeniePoint
    *
    * Public open-data locations endpoint.
+   *
+   * Render environment variable:
+   * GENIEPOINT_LOCATIONS_URL=https://opendata.geniepoint.co.uk/locations
    */
   ...optionalFeed({
     id: "geniepoint",
@@ -45,6 +48,9 @@ export const cpoFeeds: CpoFeedConfig[] = [
    * Clenergy EV
    *
    * Public OCPI-style open-data locations endpoint.
+   *
+   * Render environment variable:
+   * CLENERGY_LOCATIONS_URL=https://api.clenergy.online/development/pcpr/locations
    */
   ...optionalFeed({
     id: "clenergy",
@@ -57,29 +63,49 @@ export const cpoFeeds: CpoFeedConfig[] = [
   /**
    * BMM Networks / EV Dot
    *
-   * BMM's open-data page links to machine-readable OCPI locations data.
+   * BMM / EV Dot appears to expose an OCPI-style locations endpoint using
+   * the evdot.clenergy.online API host.
    *
-   * Once you have copied the actual BMM locations URL from their open-data page,
-   * add it in Render as:
-   *
-   * BMM_LOCATIONS_URL=https://...
-   *
-   * Until that environment variable is set, this feed is skipped because
-   * the fallback URL contains example.com.
+   * Render environment variable:
+   * BMM_LOCATIONS_URL=https://api.evdot.clenergy.online/development/pcpr/locations
    */
   ...optionalFeed({
     id: "bmm",
     name: "BMM Networks / EV Dot",
     locationsUrl:
       process.env.BMM_LOCATIONS_URL ??
-      "https://example.com/bmm-locations.json"
+      "https://api.evdot.clenergy.online/development/pcpr/locations"
+  }),
+
+  /**
+   * char.gy
+   *
+   * char.gy publishes OCPI open-data endpoints for Public Charge Point
+   * Regulations compliance.
+   *
+   * Host:
+   * https://char.gy
+   *
+   * Locations endpoint:
+   * /open-ocpi/locations
+   *
+   * Render environment variable:
+   * CHARGY_LOCATIONS_URL=https://char.gy/open-ocpi/locations
+   */
+  ...optionalFeed({
+    id: "chargy",
+    name: "char.gy",
+    locationsUrl:
+      process.env.CHARGY_LOCATIONS_URL ??
+      "https://char.gy/open-ocpi/locations"
   }),
 
   /**
    * GRIDSERVE
    *
    * GRIDSERVE appears to require API onboarding rather than simply exposing
-   * a public no-auth JSON URL in the same way as GeniePoint or Clenergy.
+   * a public no-auth JSON URL in the same way as GeniePoint, Clenergy, BMM,
+   * or char.gy.
    *
    * Once GRIDSERVE gives you an endpoint, add it in Render as:
    *
